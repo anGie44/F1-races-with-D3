@@ -1,0 +1,592 @@
+<html>
+    <head>
+        <title>Project 2</title>
+        <script src="https://d3js.org/d3.v4.min.js"></script>
+        <script src="https://code.jquery.com/jquery-1.10.2.js"></script>
+        <style> 
+            
+            body
+            {
+                font-family: sans-serif;
+                background-color: #404040;
+            }
+            
+            #Graph { 
+                border: solid #ccc 0.75px;
+            } 
+            
+            .button{
+                background-color: transparent;
+                color: #CCCCCC;
+                text-align: center;
+                padding: 14px;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 14px;
+                margin: 4px 6px;
+                cursor: pointer;
+                -webkit-transition-duration: 0.4s; /* Safari */
+                transition-duration: 0.4s;
+                border: 1px solid;
+                outline: none;
+                /*width:100%;*/
+                border-radius: 6px;
+                font-weight: 100;
+            }
+            
+            #buttonHolder
+            {
+                /*display: inline-block;
+                float: left;
+                width:150px;*/
+                margin-top: 30px;
+                margin-bottom: 20px;
+                text-align: center;
+            }
+            
+            #svgHolder
+            {
+                /*display: inline-block;
+                float: left;*/
+                width:100%;
+                text-align: center;
+            }
+            
+            #legendHolder
+            {
+                /*display: inline-block;
+                float: left;*/
+                width:100%;
+                text-align: center;
+            }
+            
+            #headerHolder
+            {
+                height:160px;
+                padding-top: 48px;
+                width: 100%;
+                text-align: center;
+            }
+            
+            h2{
+                
+                color:white;
+                text-align: center;
+                font-family: Futura;
+                font-weight: 300;
+                font-style: oblique;
+                
+            }
+            
+            .lapAxis text
+            {
+                fill:white;
+            }
+            
+            .lapAxis line
+            {
+                stroke:white;
+            }
+            
+            .lapAxis path
+            {
+                stroke:transparent;
+            }
+            
+            .text
+            {
+                font-family: Verdana;
+                font-weight: 200;
+                line-height: 24px;
+                letter-spacing: 1.3px;
+            }
+            
+            #f1
+            {
+               margin-left: 30px; 
+            }
+            
+        </style>
+    </head>
+
+    <body>
+
+        <div id="headerHolder">
+            <img id="f1" src="Visuals/F1_logo_white.png" width="200px"></img>
+            <h2>Race Results 2011</h2>
+        </div>
+       <div id="buttonHolder"></div>
+        <br>
+        <div id="svgHolder">
+            <svg id="Graph" width="1250" height="700">
+            </svg>
+        </div>
+        
+        <script>
+            //List of Races in F1 2011
+            var race_list = ["Belgium","Canada","EUGP","Germany","Hungary","India","Italy","Japan","Korea","Monaco","Silverstone","Singapore","Spain"]
+            
+            var race_color = ["#ee6d66","#f49cc8","#a866ee","#D23232","#7166ee","#3080e8","#107c91","#16c79e","#d59f80","#FFBF00","#FF7900","#56A902","#66d7ee"]
+            
+            //Load Data Files
+            var race_data;
+            var start_data = [];
+            var result_data = [];
+            
+            var queue1 = d3.queue();
+            var queue2 = d3.queue();
+            var queue3 = d3.queue();
+            
+            function loadData(){
+                race_list.forEach(function(race_name){
+                    queue1.defer(d3.json, "RaceData_JSON/"+race_name+".json");
+                    queue2.defer(d3.json, "RaceStart_JSON/"+race_name+".json");
+                    queue3.defer(d3.json, "RaceResults_JSON/"+race_name+".json")
+                });
+                queue1.awaitAll(function (error, data){
+                    race_data = data;
+                    //Name all races
+                    for (i=0; i<race_list.length; i++){
+                        race_data[i].name = race_list[i];
+                    }
+                });
+                queue2.awaitAll(function (error, data){
+                    for (i=0; i<data.length; i++){
+                        start_data.push(data[i].MRData.RaceTable.Races[0].QualifyingResults);
+                    }
+                });
+                queue3.awaitAll(function (error, data){
+                    for (i=0; i<data.length; i++){
+                        result_data.push(data[i].MRData.RaceTable.Races[0]);
+                    }
+                    for (i=0; i<race_list.length; i++){
+                        result_data[i].name = race_list[i];
+                    }
+                });
+            }
+          
+            
+            loadData();
+ 
+            //Function to initialize graph when button is clicked
+            //
+            // Called from "on click" event of a button
+            // Creates graph of clicked race with top 3 finishers selected
+            // Removes old graph stuff
+            // Creates clickable buttons for each racer
+            var race;
+            var results;
+            var raceDrivers;
+            var lapDataDict = {};
+            var allDriversData = {};
+            
+            
+                
+            function initializeRace(racename) {
+                /* refresh svg from previous race contents */
+                d3.selectAll("#Graph > *").remove(); 
+
+                var svgPlot = d3.select("#Graph");
+
+                race = race_data.filter(function(d) {return d.name == racename;})[0]
+                results = result_data.filter(function(d) {return d.name == racename;})[0].Results
+               
+                
+                var maxNumberOfLaps = 0; // to later use for horizontal scale
+                var maxTimeBehindLeader = 0;
+
+                raceDrivers = Object.keys(race);
+                raceDrivers.splice(-1); //remove "name" element in array
+                
+                /* loop through racers to get max number of laps in particular race */
+                for (var driver in race) {
+                    if (driver != "name"){
+                        var numLaps = Object.keys(race[driver]).length;
+                        maxNumberOfLaps = numLaps > maxNumberOfLaps ? numLaps : maxNumberOfLaps;
+
+                        // for(var i = 1; i <= numLaps; i++) {
+                        //     maxTimeBehindLeader = Number(race[driver][i][1]) > maxTimeBehindLeader ? Number(race[driver][i][1]) : maxTimeBehindLeader;
+                        // }
+                    }
+                }
+                /* Scales Used in SVG Graph:
+                 * lapScale => horizontal
+                 * positionScale => vertical
+                 * driverScale => for unique driver-path colors
+                 */
+                var lapScale = d3.scaleLinear().domain([1, maxNumberOfLaps]).range([20, d3.select("#Graph").attr("width")-250]); // left & right padding of 20px 
+                var lapAxis = d3.axisTop(lapScale).ticks(50);
+
+
+                var positionScale = d3.scaleLinear().domain([1, raceDrivers.length]).range([40, d3.select("#Graph").attr("height")-20]);
+
+                // var timeScale = d3.scaleLinear().domain([0, maxTimeBehindLeader]).range([40, d3.select("#Graph").attr("height")-20]);
+
+                var driverScale = d3.scaleOrdinal().domain([raceDrivers]).range(["#5E4FA2", "#3288BD", "#66C2A5", "#ABDDA4", "#E6F598", "#FFFFBF", "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F", "#9E0142"]);
+
+                svgPlot.append("g").call(lapAxis).attr("transform", "translate(0,30)").attr("class", "lapAxis");
+            
+                for(var i = 1; i <= maxNumberOfLaps; i++) { // get position of Drivers at Each Lap
+                    var driversInLap = {}; // will be sorted in ascending order by timeBehindLeader
+                    for (var driver in race) {
+                        var timeBehindLeader;
+                        if (driver == "name") {
+                            continue;
+                        }
+                        if (i <= Object.keys(race[driver]).length) {
+                            if (race[driver][i][1] == "PIT") {
+                                timeBehindLeader = Number(race[driver][i][3]);
+                            }
+                            else {
+                                timeBehindLeader = Number(race[driver][i][1]);
+                            }
+                            driversInLap[driver] = timeBehindLeader;  
+                        }    
+                    }
+                    var driverPositionsOrdered = Object.keys(driversInLap).map(function(driver) {
+                        return [driver, driversInLap[driver]];
+                    });
+                    driverPositionsOrdered.sort(function(first, second) {
+                        return first[1] - second[1]
+                    })
+                    lapDataDict[i] = driverPositionsOrdered;
+                }
+               Object.prototype.getKeyByValue = function(value) {
+                    for(var prop in this) {
+                        if (this.hasOwnProperty(prop)) {
+                            if (this[prop][0] == value)
+                                return Number(prop)+1;
+                        }
+                    }
+               }
+
+
+               var lineGenerator = d3.line()
+                    .x(function(d) { return lapScale(d.lap); })
+                    .y(function(d) { return positionScale(d.position) });
+
+                
+               
+               raceDrivers.forEach(function(d, i) {
+                    var driverPositions = []; /* will correspond to y-values to later scale */
+                    var nLapsDriverIsInRace = Object.keys(race[d]).length;
+
+                    for (var lap = 1; lap <= nLapsDriverIsInRace; lap++) { // loop through each lap available
+                        var dataAtLap = lapDataDict[lap];
+
+
+                        /* find this driver's position at the current lap */
+
+                        var position = dataAtLap.getKeyByValue(d);
+
+                        
+                        var lapType = race[d][lap][1] == "PIT" ? "PIT" : "NA";
+
+                        var isLastVal = lap == nLapsDriverIsInRace ? true : false;
+
+                        driverPositions.push({
+                            "lap": lap, 
+                            "position" : Number(position),
+                            "lapType" : lapType,
+                            "isLast" :  isLastVal });
+
+                        allDriversData[d] = driverPositions;
+
+                   } 
+                   
+                   /* once exited the for-loop, have driver's time from leader */
+
+                   var textWidth;
+                   var pathString = lineGenerator(driverPositions);
+                   var drivername = results[i].Driver.givenName[0]+". "+results[i].Driver.familyName;
+                   svgPlot.append("text")
+                   .attr("class","text")
+                   .attr("id","text" + i)
+                   .attr("x", d3.select("#Graph").attr("width")-185)
+                    .attr("y", positionScale(results[i].position)+5)
+                    .text(results[i].position+") "+drivername)
+                   .attr("font-family", "Verdana")
+                    .attr("font-size", "13px")
+                    .attr("fill", "white")
+                   .style("opacity",0.8)
+                   .each(function()
+                        {
+                       textWidth=this.getComputedTextLength()
+                   })
+
+                   
+                   //.style("opacity",0);
+                   
+                   
+                   /*svgPlot.append("rect")
+                   .attr("x",40)
+                   .attr("y",40)
+                   .attr("width",35)
+                   .attr("height",23)
+                   .style("fill","red")*/
+                   
+                   svgPlot.append("svg:image")
+                   .attr("x", d3.select("#Graph").attr("width")-220)
+                    .attr("y", positionScale(results[i].position)-8)
+                   .attr("width",22.34)
+                   .attr("height",15)
+                   .attr("xlink:href","Flags/"+results[i].Driver.nationality+".png")
+                   
+                   svgPlot.append("circle")
+                    .attr("r", 4)
+                   .attr("class","statusCircle")
+                   .attr("id","status"+i)
+                    .style("fill", function(){
+                       if(getDriversStatus(drivername)==true)
+                           {
+                               return "green";
+                           }
+                       else
+                           {
+                               if(results[getDriverIndexInResultsArray(drivername)]["status"].toLowerCase().includes("lap"))
+                                   {
+                                       return "orange"
+                                   }
+                                    return "red"
+                           }
+                   })
+                    .attr("cx", d3.select("#Graph").attr("width")-150+textWidth)
+                    .attr("cy",positionScale(results[i].position));
+                   
+                   
+                   
+
+                   svgPlot.append("path")
+                       .attr("d", pathString)
+                       .attr("class", "line")
+                       .attr("id", "line" + i)
+                       .attr("stroke", driverScale(d))
+                       .attr("stroke-width", 3)
+                       .attr("fill", "none")
+                       .on("mouseover", function() {
+                            d3.selectAll(".line")
+                                .style("opacity", ".2");
+                            d3.select(this).style("opacity", "1");
+                            d3.select(this).style("stroke-width", "5");
+
+                            d3.selectAll("#driver" + i)
+                                .style("opacity", "1");
+                            d3.select(this).style("cursor","pointer")
+                            d3.select("#text"+getDriverIndexInResultsArray(d)).style("font-weight",600)
+                            d3.select("#text"+getDriverIndexInResultsArray(d)).style("opacity",1);
+
+                       })
+                       .on("mouseout", function() {
+                            d3.selectAll(".line")
+                                .style("opacity", "1")
+                                .style("stroke-width", "3");
+                           
+                            d3.selectAll("circle")
+                                .style("opacity", "0");
+                            d3.select("#text"+getDriverIndexInResultsArray(d)).style("font-weight",300)
+                            d3.select("#text"+getDriverIndexInResultsArray(d)).style("opacity",0.8);
+                            d3.selectAll(".statusCircle").style("opacity","1")
+                            
+                       });
+
+
+                    function setRadiusForLapType(driver, type) {
+                        if (type == "PIT") {
+                            return "8";
+                        }
+                        else {
+                            return "4";
+                        }
+                    }
+
+
+                    function getDriversStatus(driver) {
+                        //console.log(driver);
+                        return results[getDriverIndexInResultsArray(driver)]["status"] == "Finished" ? true : false;
+                    }
+
+                    function setFillForLapType(driver, data) {
+                        /* check which dot we're at */
+                        if (data.isLast) { // last dot on driver's path
+                            // check driver's status, if not finished make fill red
+                            var finished = getDriversStatus(driver);
+
+                            if (finished) {
+                                if (data.lapType == "PIT"){
+                                    return driverScale(driver);
+                                }
+                                else {
+                                    return "black";
+                                }
+                            }
+                            else {
+                                return "red"
+                            }
+                        }  
+                        else {  
+                            if (data.lapType == "PIT"){
+                                return driverScale(driver);
+                            }
+                            else {
+                                return "black";
+                            }
+                        }
+                    }
+                    
+                    svgPlot.selectAll("dot")
+                        .data(driverPositions)
+                        .enter()
+                        .append("circle")
+                            .attr("r", function(data) { return setRadiusForLapType(d, data.lapType); })
+                            .attr("class", function(d) { return "driver" + d.lapType; })
+                            .attr("id", "driver" + i)
+                            .attr("stroke", "white")
+                            .style("fill", function(data) { return setFillForLapType(d, data); })
+                            .attr("cx", function(d) { return lapScale(d.lap); })
+                            .attr("cy", function(d) { return positionScale(d.position); })
+                            .on("mouseover", function() {
+                                d3.selectAll(".line")
+                                    .style("opacity", ".2")
+                                d3.select("#line" + i)
+                                    .style("opacity", "1")
+                                    .style("stroke-width", "5")
+                                d3.selectAll("#driver" + i)
+                                    .style("opacity", "1");
+                                d3.select(this).style("cursor","pointer")
+                                d3.select("#text"+getDriverIndexInResultsArray(d)).style("font-weight",600);
+                                d3.select("#text"+getDriverIndexInResultsArray(d)).style("opacity",1);
+                                d3.selectAll(".statusCircle").style("opacity","1")
+                            })
+                            .on("mouseout", function() {
+                                d3.selectAll(".line")
+                                    .style("opacity", "1")
+                                    .style("stroke-width", "3");
+                           
+                                d3.selectAll("circle")
+                                    .style("opacity", "0");
+                                d3.select("#text"+getDriverIndexInResultsArray(d)).style("font-weight",300)
+                                d3.select("#text"+getDriverIndexInResultsArray(d)).style("opacity",0.8);
+                                d3.selectAll(".statusCircle").style("opacity","1")
+                            });
+
+                    
+                    /* if have dots that are pit stops, add 'P' text within circle */
+                    
+                    // var pitDots = svgPlot.selectAll(".driverPIT");
+                    
+
+                    /* initially set all lines to no show */
+                    d3.selectAll(".line").style("opacity", "0");
+                    d3.selectAll("circle").style("opacity", "0");
+                   d3.selectAll(".statusCircle").style("opacity","1")
+
+               }); 
+               animatelines();
+            }
+            
+            /* for each line, need to know the driver's end position to multiply by duration */
+
+            function animatelines() {
+                
+                d3.selectAll(".line")
+                    .style("opacity", "1");
+
+                d3.selectAll(".line").each(function(d, i) {
+                    var currDriver = raceDrivers[i];
+                    var endPosition = allDriversData[currDriver][allDriversData[currDriver].length-1].position;
+
+                    var totalLength = d3.select("#line" + i).node().getTotalLength();
+
+                    d3.selectAll("#line" + i)
+                        .attr("stroke-dasharray", totalLength + " " + totalLength)
+                        .attr("stroke-dashoffset", totalLength)
+                        .transition()
+                        .duration(500*endPosition) /* depends on finishing position */
+                        // .delay(100)
+                        .ease(d3.easeLinear)
+                        .attr("stroke-dashoffset", "0");
+                }); 
+
+            }
+        
+            
+            
+            //Adding buttons above SVG
+            var button_holder = d3.select("#buttonHolder");
+            var buttons = button_holder.selectAll("input").data(race_list);
+            
+            var buttonClicked = false;
+            buttons.enter()
+            .append("input")
+            .attr("type","button")
+            .attr("class","button")
+            .attr("clicked","false")
+            //.attr("id",function(d,i){return "button"+i})
+            .attr("value", function (d){return d; })
+            .style("border-color", function(d,i){return race_color[i];})
+            .on("click", function(d,i)
+                {
+                    if(d3.select(this).attr("clicked")=="false")
+                        {
+                            clearButtons()
+                            d3.select(this).attr("clicked","true")
+                            makeButtonColored(this,i)
+                            initializeRace(d);   
+                        }
+                    else
+                        {
+                            d3.select(this).attr("clicked","false")
+                            makeButtonTransparent(this)
+                            //initializeRace(d); 
+                        }
+            })
+            .on("mouseover", function(d,i)
+               {
+                makeButtonColored(this,i)
+            })
+            .on("mouseout",function(d)
+               {
+                   if(d3.select(this).attr("clicked")=="false")
+                    {
+                        makeButtonTransparent(this);
+                    }
+            });
+          
+            function clearButtons()
+            {
+                button_holder.selectAll("input").
+                style("background-color","transparent")
+                .style("color","#CCCCCC")
+                .style("font-weight",100)
+                .attr("clicked","false");
+            }
+            
+            function makeButtonColored(btn, i)
+            {
+                d3.select(btn).style("background-color",race_color[i]);
+                d3.select(btn).style("color","white");
+                d3.select(btn).style("font-weight",500); 
+            }
+            
+            function makeButtonTransparent(btn)
+            {
+                d3.select(btn).style("background-color","transparent"); 
+                d3.select(btn).style("color","#CCCCCC"); 
+                d3.select(btn).style("font-weight",100);
+            }
+            
+            function getDriverIndexInResultsArray(driver) {
+                if(driver!=undefined)
+                    {
+                        var driverFamilyName = driver.toLowerCase();
+                        for (var i = 0; i < results.length; i++) {
+                            if (driverFamilyName.includes(results[i]["Driver"]["driverId"])) {
+                                return i;
+                            }
+                        }
+                    }
+            }
+            
+        </script>        
+    </body>
+</html>
